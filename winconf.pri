@@ -1,54 +1,80 @@
-# Adapt these paths on Windows
-
-#Point this to the boost include folder
-INCLUDEPATH += $$quote(C:/qBittorrent/boost_1_46_0)
-#Point this to the libtorrent include folser
-INCLUDEPATH += $$quote(C:/qBittorrent/RC_0_15/include)
-#Point this to the zlib include folder(libtorrent's if you used that)
-INCLUDEPATH += $$quote(C:/qBittorrent/RC_0_15/zlib)
-#Point this to the openssl include folder
-INCLUDEPATH += $$quote(C:/OpenSSL/include)
-
-#Point this to the openssl lib folder
-LIBS += $$quote(-LC:/OpenSSL/lib/VC)
-#Point this to the libtorrent lib folder
-LIBS += $$quote(-LC:/qBittorrent/RC_0_15/bin/<path-according-to-the-build-options-chosen>)
-#Point this to the boost lib folder
-LIBS += $$quote(-LC:/qBittorrent/boost_1_46_0/stage/lib)
-
-# LIBTORRENT DEFINES
-DEFINES += BOOST_ALL_NO_LIB
 DEFINES += BOOST_ASIO_HASH_MAP_BUCKETS=1021
+# After 1.55 some Windows users reported regular UI freezes.
+# This makes ASIO use the pre-1.56 way of doing things. See issue #2003
+DEFINES += BOOST_ASIO_DISABLE_CONNECTEX
 DEFINES += BOOST_EXCEPTION_DISABLE
-DEFINES += BOOST_SYSTEM_STATIC_LINK=1
-DEFINES += BOOST_THREAD_USE_LIB
-DEFINES += BOOST_THREAD_USE_LIB=1
+
 DEFINES += TORRENT_USE_OPENSSL
+DEFINES += TORRENT_DISABLE_GEO_IP
+DEFINES += TORRENT_DISABLE_RESOLVE_COUNTRIES
+
 DEFINES += UNICODE
+DEFINES += _UNICODE
 DEFINES += WIN32
+DEFINES += _WIN32
 DEFINES += WIN32_LEAN_AND_MEAN
 DEFINES += _CRT_SECURE_NO_DEPRECATE
-DEFINES += _FILE_OFFSET_BITS=64
 DEFINES += _SCL_SECURE_NO_DEPRECATE
-DEFINES += _UNICODE
-DEFINES += _WIN32
-DEFINES += _WIN32_WINNT=0x0500
-DEFINES += _WIN32_IE=0x0500
 DEFINES += __USE_W32_SOCKETS
-DEFINES += WITH_SHIPPED_GEOIP_H
+DEFINES += _FILE_OFFSET_BITS=64
+DEFINES += NOMINMAX
 
 CONFIG(debug, debug|release) {
-  DEFINES += TORRENT_DEBUG
-} else {
-  DEFINES += NDEBUG
-}
-
-win32-g++ {
-  include(winconf-mingw.pri)
+    DEFINES += TORRENT_DEBUG
 }
 else {
-  include(winconf-msvc.pri)
+    DEFINES += NDEBUG
 }
 
-DEFINES += WITH_GEOIP_EMBEDDED
-message("On Windows, GeoIP database must be embedded.")
+win32-g++* {
+    CONFIG(debug, debug|release) {
+        # Make sure binary is not relocatable, otherwise debugging will fail
+        QMAKE_LFLAGS -= -Wl,--dynamicbase
+    }
+
+    RC_FILE = qbittorrent_mingw.rc
+    
+    LIBS += libadvapi32 libshell32 libuser32 libole32 libwsock32 libws2_32 libpowrprof
+}
+else:win32-msvc* {
+    CONFIG -= embed_manifest_exe
+    QMAKE_LFLAGS += "/MANIFEST:EMBED /MANIFESTINPUT:$$quote($${PWD}/src/qbittorrent.exe.manifest) /STACK:0x800000"
+    QMAKE_LFLAGS_RELEASE += "/OPT:REF /OPT:ICF"
+
+    RC_FILE = qbittorrent.rc
+    
+    LIBS += advapi32.lib shell32.lib crypt32.lib User32.lib ole32.lib PowrProf.lib
+}
+
+# See an example build configuration in "conf.pri.windows"
+exists(conf.pri) {
+    include(conf.pri)
+}
+else {
+    error("'conf.pri' does not exist. See an example configuration in 'conf.pri.windows'.")
+}
+
+# Stack trace support can be enabled in 'conf.pri'
+strace_win {
+    win32-g++* {
+        contains(QMAKE_HOST.arch, x86) {
+            # i686 arch requires frame pointer preservation
+            QMAKE_CXXFLAGS += -fno-omit-frame-pointer
+        }
+
+        QMAKE_LFLAGS += -Wl,--export-all-symbols
+
+        LIBS += libdbghelp
+    }
+    else:win32-msvc* {
+        contains(QMAKE_HOST.arch, x86) {
+            # i686 arch requires frame pointer preservation
+            QMAKE_CXXFLAGS += -Oy-
+        }
+
+        QMAKE_CXXFLAGS *= -Zi
+        QMAKE_LFLAGS *= "/DEBUG"
+
+        LIBS += dbghelp.lib
+    }
+}
